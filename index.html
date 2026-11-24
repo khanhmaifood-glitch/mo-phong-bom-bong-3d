@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mô hình bơm bóng 3D – Khí lí tưởng (Vật lí 12)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #f8fafc;
+            color: #0f172a;
+            margin: 0;
+            padding: 0;
+        }
+        /* Thanh trượt thiết kế mới: rãnh ngọc lục bảo & nút kéo bo góc hiện đại */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 7px;
+            background: linear-gradient(90deg, #ccfbf1 0%, #99f6e4 100%);
+            border-radius: 4px;
+            outline: none;
+            cursor: pointer;
+            border: 1px solid #5eead4;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 14px;
+            border-radius: 4px;
+            background: #0d9488;
+            cursor: pointer;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 5px rgba(13, 148, 136, 0.45);
+            transition: transform 0.12s ease, background-color 0.15s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.12);
+            background: #0f766e;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 14px;
+            border-radius: 4px;
+            background: #0d9488;
+            cursor: pointer;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 5px rgba(13, 148, 136, 0.45);
+        }
+        /* Thanh cuộn tinh gọn cho cột điều khiển */
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col lg:flex-row bg-slate-50">
+    <div id="toast-box" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 hidden transition-all duration-200">
+        <div class="bg-slate-900/90 text-white px-4 py-2 rounded-lg shadow-lg text-xs font-medium flex items-center gap-2 backdrop-blur-sm">
+            <span id="toast-icon">ℹ️</span>
+            <span id="toast-msg">Thông báo</span>
+        </div>
+    </div>
+
+    <!-- KHU VỰC TRÁI: KHUNG CẢNH 3D NỀN TRẮNG -->
+    <div class="relative flex-1 h-[52vh] lg:h-full bg-white overflow-hidden" id="canvas-container">
+        <canvas id="threeCanvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+
+        <!-- Chú thích góc dưới trái giống ảnh mẫu -->
+        <div class="absolute bottom-3 left-4 text-xs text-slate-500 pointer-events-none select-none">
+            Kéo chuột/ngón tay để xoay mô hình · cuộn để thu phóng
+        </div>
+
+        <!-- Nút đặt lại góc nhìn nhỏ gọn góc trên trái -->
+        <button onclick="resetCamera()" class="absolute top-3 left-4 bg-white/90 hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-1 rounded-md text-xs font-medium shadow-sm transition">
+            ⟲ Góc nhìn chuẩn
+        </button>
+
+        <!-- Cụm nút thao tác nhanh nổi ngay trên màn hình 3D -->
+        <div class="absolute bottom-3 right-4 flex items-center gap-2 z-10">
+            <button id="btn-pump-float" onclick="pumpOnce()" class="bg-teal-600 hover:bg-teal-700 active:scale-95 disabled:opacity-45 disabled:pointer-events-none text-white px-4 py-2 rounded-full text-xs sm:text-sm font-semibold shadow-md transition flex items-center gap-1.5">
+                <span>⬇</span> Bơm khí
+            </button>
+            <button id="btn-release-float" onclick="releaseAir()" class="bg-white/95 hover:bg-slate-100 active:scale-95 disabled:opacity-45 disabled:pointer-events-none text-slate-700 border border-slate-300 px-3 py-2 rounded-full text-xs sm:text-sm font-medium shadow-sm transition">
+                Xả khí
+            </button>
+        </div>
+
+        <!-- Cảnh báo khi bóng nổ vượt áp suất tối đa -->
+        <div id="burst-overlay" class="hidden absolute inset-0 bg-white/75 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 text-center pointer-events-none">
+            <div class="text-4xl mb-2">💥</div>
+            <h2 class="text-lg sm:text-xl font-bold text-red-600">BÓNG ĐÃ NỔ!</h2>
+            <p class="text-xs sm:text-sm text-slate-700 mt-1 max-w-sm">
+                Áp suất trong bóng vượt quá giới hạn chịu đựng (<strong id="burst-limit-txt">350 kPa</strong>). Nhấn <b>"Đặt lại"</b> để làm lại thí nghiệm.
+            </p>
+        </div>
+    </div>
+
+    <!-- KHU VỰC PHẢI: BẢNG ĐIỀU KHIỂN SÁNG MÀU GIỐNG HÌNH MẪU -->
+    <aside class="w-full lg:w-[340px] xl:w-[360px] h-[48vh] lg:h-full bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col justify-between overflow-y-auto p-4 sm:p-5 select-none">
+        
+        <div class="space-y-3.5">
+            <!-- Tiêu đề & Phương trình -->
+            <div>
+                <h1 class="text-base font-bold text-slate-900 leading-snug">Mô hình bơm bóng 3D</h1>
+                <p class="text-[11px] text-slate-500 mt-0.5">Vật lí 12 – Khí lí tưởng: định luật Boyle, Charles, Gay-Lussac</p>
+                
+                <div class="mt-2.5 bg-slate-50 border border-slate-200 rounded-md py-2 px-3 text-center font-semibold text-xs sm:text-sm text-slate-800 tracking-wide">
+                    p · V = n · R · T
+                </div>
+            </div>
+
+            <!-- Danh sách 5 thanh trượt thông số -->
+            <div class="space-y-3 pt-0.5">
+                <!-- 1. Thể tích bóng V -->
+                <div>
+                    <div class="flex justify-between items-center text-xs mb-1">
+                        <span class="text-slate-700 font-medium">Thể tích bóng V</span>
+                        <span id="lbl-v" class="font-bold text-slate-900">0.0 L</span>
+                    </div>
+                    <input type="range" id="slider-v" min="0" max="15" step="0.1" value="0" oninput="onSliderVChange()">
+                </div>
+
+                <!-- 2. Thể tích mỗi lần bơm V0 -->
+                <div>
+                    <div class="flex justify-between items-center text-xs mb-1">
+                        <span class="text-slate-700 font-medium">Thể tích mỗi lần bơm V₀</span>
+                        <span id="lbl-v0" class="font-bold text-slate-900">200 mL</span>
+                    </div>
+                    <input type="range" id="slider-v0" min="50" max="1000" step="10" value="200" oninput="onParamsChange()">
+                </div>
+
+                <!-- 3. Nhiệt độ khí T -->
+                <div>
+                    <div class="flex justify-between items-center text-xs mb-1">
+                        <span class="text-slate-700 font-medium">Nhiệt độ khí T</span>
+                        <span id="lbl-tc" class="font-bold text-slate-900">27 °C</span>
+                    </div>
+                    <input type="range" id="slider-tc" min="-20" max="150" step="1" value="27" oninput="onParamsChange()">
+                </div>
+
+                <!-- 4. Áp suất khí quyển p0 -->
+                <div>
+                    <div class="flex justify-between items-center text-xs mb-1">
+                        <span class="text-slate-700 font-medium">Áp suất khí quyển p₀</span>
+                        <span id="lbl-p0" class="font-bold text-slate-900">101.3 kPa</span>
+                    </div>
+                    <input type="range" id="slider-p0" min="80" max="120" step="0.1" value="101.3" oninput="onParamsChange()">
+                </div>
+
+                <!-- 5. Áp suất tối đa bóng chịu được -->
+                <div>
+                    <div class="flex justify-between items-center text-xs mb-1">
+                        <span class="text-slate-700 font-medium">Áp suất tối đa bóng chịu được</span>
+                        <span id="lbl-pmax" class="font-bold text-slate-900">350 kPa</span>
+                    </div>
+                    <input type="range" id="slider-pmax" min="150" max="600" step="10" value="350" oninput="onParamsChange()">
+                </div>
+            </div>
+
+            <!-- Hàng nút điều khiển: Bơm 1 lần | Tự động bơm | Xả khí & Đặt lại -->
+            <div class="space-y-2 pt-1">
+                <div class="grid grid-cols-3 gap-2">
+                    <button id="btn-pump" onclick="pumpOnce()" class="py-2 px-2 rounded-md bg-teal-600 hover:bg-teal-700 active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none text-white font-semibold text-xs transition shadow-sm">
+                        Bơm 1 lần
+                    </button>
+                    <button id="btn-auto" onclick="toggleAutoPump()" class="py-2 px-2 rounded-md bg-white hover:bg-slate-50 active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none text-slate-800 border border-slate-300 font-medium text-xs transition">
+                        Tự động bơm
+                    </button>
+                    <button id="btn-release" onclick="releaseAir()" class="py-2 px-2 rounded-md bg-white hover:bg-slate-50 active:scale-[0.98] disabled:opacity-45 disabled:pointer-events-none text-slate-800 border border-slate-300 font-medium text-xs transition">
+                        Xả khí
+                    </button>
+                </div>
+                <button onclick="resetSim()" class="w-full py-1.5 px-3 rounded-md bg-white hover:bg-slate-50 active:scale-[0.99] text-slate-700 border border-slate-300 font-medium text-xs transition">
+                    Đặt lại
+                </button>
+            </div>
+
+            <!-- Thanh tiến trình tỉ số áp suất p / p tối đa -->
+            <div class="pt-0.5">
+                <div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div id="pressure-bar" class="h-full bg-emerald-600 transition-all duration-200" style="width: 29%;"></div>
+                </div>
+                <div class="flex justify-between items-center mt-1 text-[11px] text-slate-600">
+                    <span>p / p tối đa = <strong id="lbl-pratio" class="text-slate-800">29%</strong></span>
+                    <span id="lbl-state-badge" class="text-amber-600 font-medium">Bóng xẹp (0.0 L)</span>
+                </div>
+            </div>
+
+            <!-- Lưới 4 thẻ thông số kết quả 2x2 -->
+            <div class="grid grid-cols-2 gap-2">
+                <div class="bg-slate-50 border border-slate-200/80 rounded-md p-2.5">
+                    <div class="text-[11px] text-slate-500">Áp suất p</div>
+                    <div id="val-p" class="text-xs sm:text-[13px] font-bold text-slate-900 mt-0.5 leading-tight">
+                        101.3 kPa (1.00 atm)
+                    </div>
+                </div>
+                <div class="bg-slate-50 border border-slate-200/80 rounded-md p-2.5">
+                    <div class="text-[11px] text-slate-500">Số mol khí n</div>
+                    <div id="val-n" class="text-xs sm:text-[13px] font-bold text-slate-900 mt-0.5 leading-tight">
+                        0.0000 mol
+                    </div>
+                </div>
+                <div class="bg-slate-50 border border-slate-200/80 rounded-md p-2.5">
+                    <div class="text-[11px] text-slate-500">Số lần bơm</div>
+                    <div id="val-pumps" class="text-xs sm:text-[13px] font-bold text-slate-900 mt-0.5 leading-tight">
+                        0
+                    </div>
+                </div>
+                <div class="bg-slate-50 border border-slate-200/80 rounded-md p-2.5">
+                    <div class="text-[11px] text-slate-500">Nhiệt độ tuyệt đối</div>
+                    <div id="val-tk" class="text-xs sm:text-[13px] font-bold text-slate-900 mt-0.5 leading-tight">
+                        300.1 K
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ghi chú công thức ở đáy bảng điều khiển giống ảnh mẫu -->
+        <div class="mt-3 pt-2 border-t border-slate-100 text-[11px] text-slate-500 leading-relaxed">
+            • Mỗi lần bơm đưa thêm <b>Δn = (p₀·V₀)/(R·T)</b> mol khí vào bóng.<br>
+            • Khi bóng xẹp (<b>V &lt; V<sub>căng</sub></b>): bóng giãn nở ở áp suất <b>p ≈ p₀</b>. Khi đã căng tròn (<b>V = V<sub>căng</sub></b>): giữ thể tích không đổi và áp suất tăng tỉ lệ với <b>n·T</b>.
+        </div>
+    </aside>
+
+    <script>
+        // ==========================================
+        // 1. HẰNG SỐ VÀ BIẾN TRẠNG THÁI VẬT LÝ
+        // ==========================================
+        const R = 8.314;              // J/(mol·K)
+        const V_TENSE_DEFAULT = 5.0;  // Ngưỡng thể tích vỏ bóng căng tròn hoàn toàn (5.0 Lít)
+
+        // Trạng thái khởi đầu: Quả bóng xẹp hoàn toàn (n = 0 mol, V = 0 L)
+        let V_max_shell = 5.0;        // Thể tích vỏ bóng tối đa khi căng (thanh trượt V)
+        let V = 0.0;                  // Thể tích thực tế của khí trong bóng (Lít)
+        let V0_mL = 200;              // Thể tích mỗi lần bơm (mL)
+        let T_C = 27;                 // Nhiệt độ (°C)
+        let T_K = 300.15;             // Nhiệt độ tuyệt đối (K)
+        let p0 = 101.3;               // Áp suất khí quyển (kPa)
+        let p_max = 350;              // Áp suất tối đa bóng chịu được (kPa)
+
+        let n = 0.0;                  // Số mol khí hiện có trong bóng
+        let p = 101.3;                // Áp suất khí bên trong bóng (kPa)
+        let pumpCount = 0;            // Số lần bơm
+        let isBurst = false;          // Trạng thái nổ bóng
+        let autoPumpTimer = null;     // Bộ đếm tự động bơm
+
+        // Biến hoạt ảnh 3D
+        let isPumping = false;
+        let pistonAnim = 0;
+        let smoothInflation = 0;      // 0 = bóng xẹp rũ hoàn toàn, 1 = cầu tròn căng
+
+        // ==========================================
+        // 2. KHỞI TẠO CẢNH 3D (THREE.JS) NỀN TRẮNG
+        // ==========================================
+        const container = document.getElementById('canvas-container');
+        const canvas = document.getElementById('threeCanvas');
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xffffff);
+
+        const camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 100);
+        // Góc nhìn hơi chếch từ trên xuống giống ảnh mẫu
+        camera.position.set(0.2, 4.2, 12.2);
+
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.target.set(0.1, 1.8, 0);
+        controls.minDistance = 4.5;
+        controls.maxDistance = 24;
+        controls.maxPolarAngle = Math.PI / 2 - 0.02;
+
+        // Ánh sáng studio sáng sủa
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.78);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.65);
+        dirLight.position.set(5, 12, 8);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        scene.add(dirLight);
+
+        const fillLight = new THREE.DirectionalLight(0xe0f2fe, 0.35);
+        fillLight.position.set(-6, 6, -4);
+        scene.add(fillLight);
+
+        // Đĩa bàn tròn màu xám xanh nhạt tạo điểm nhấn khác biệt
+        const diskGeo = new THREE.CylinderGeometry(5.6, 5.6, 0.08, 64);
+        const diskMat = new THREE.MeshLambertMaterial({ color: 0xdbeafe });
+        const diskMesh = new THREE.Mesh(diskGeo, diskMat);
+        diskMesh.position.set(0.2, -0.04, 0.3);
+        diskMesh.receiveShadow = true;
+        scene.add(diskMesh);
+
+        // ==========================================
+        // 3. DỰNG MÔ HÌNH ỐNG BƠM, ỐNG DẪN & BÓNG 3D
+        // ==========================================
+        const labGroup = new THREE.Group();
+        scene.add(labGroup);
+
+        // A. Ống bơm thẳng đứng bên trái (x = -2.35)
+        const pumpX = -2.35;
+        const cylHeight = 3.6;
+        const cylRadius = 0.56;
+
+        // Đế xi-lanh màu xám đậm
+        const pumpBase = new THREE.Mesh(
+            new THREE.CylinderGeometry(cylRadius + 0.06, cylRadius + 0.08, 0.24, 36),
+            new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.2 })
+        );
+        pumpBase.position.set(pumpX, 0.38, 0);
+        pumpBase.castShadow = true;
+        labGroup.add(pumpBase);
+
+        // Chân đỡ nhỏ dưới đáy bơm
+        const pumpFoot = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18, 0.22, 0.26, 20),
+            new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 })
+        );
+        pumpFoot.position.set(pumpX, 0.13, 0);
+        labGroup.add(pumpFoot);
+
+        // Thân xi-lanh trong suốt ánh xanh dương nhạt
+        const cylMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(cylRadius, cylRadius, cylHeight, 36, 1, true),
+            new THREE.MeshPhysicalMaterial({
+                color: 0x93c5fd,
+                transparent: true,
+                opacity: 0.36,
+                roughness: 0.15,
+                metalness: 0.05,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            })
+        );
+        cylMesh.position.set(pumpX, 0.5 + cylHeight / 2, 0);
+        labGroup.add(cylMesh);
+
+        // Viền miệng trên xi-lanh
+        const cylRim = new THREE.Mesh(
+            new THREE.CylinderGeometry(cylRadius + 0.03, cylRadius + 0.03, 0.08, 36),
+            new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.4 })
+        );
+        cylRim.position.set(pumpX, 0.5 + cylHeight, 0);
+        labGroup.add(cylRim);
+
+        // Cụm Pit-tông & Tay cầm chữ T màu đỏ
+        const pistonGroup = new THREE.Group();
+        const pistonRestY = 3.85;
+        pistonGroup.position.set(pumpX, pistonRestY, 0);
+        labGroup.add(pistonGroup);
+
+        // Đầu pit-tông màu xám than bên trong ống
+        const pistonHead = new THREE.Mesh(
+            new THREE.CylinderGeometry(cylRadius - 0.03, cylRadius - 0.03, 0.28, 36),
+            new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7 })
+        );
+        pistonGroup.add(pistonHead);
+
+        // Trục kim loại sáng
+        const pistonRod = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.08, 0.08, 2.7, 20),
+            new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.65, roughness: 0.25 })
+        );
+        pistonRod.position.y = 1.35;
+        pistonGroup.add(pistonRod);
+
+        // Tay cầm chữ T màu cam hổ phách nổi bật (khác màu đỏ mẫu cũ)
+        const handleBox = new THREE.Mesh(
+            new THREE.BoxGeometry(1.15, 0.24, 0.32),
+            new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.35 })
+        );
+        handleBox.position.y = 2.75;
+        handleBox.castShadow = true;
+        pistonGroup.add(handleBox);
+
+        // B. Ống dẫn khí màu đen uốn cong trên mặt bàn nối sang bóng (x = 1.55)
+        const balloonX = 1.55;
+        const nozzleY = 0.26;
+
+        const tubeCurve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(pumpX, 0.26, 0),
+            new THREE.Vector3(pumpX, 0.07, 0.05),
+            new THREE.Vector3(-1.3, 0.06, 0.22),
+            new THREE.Vector3(0.0, 0.06, 0.25),
+            new THREE.Vector3(1.0, 0.08, 0.12),
+            new THREE.Vector3(balloonX - 0.15, nozzleY, 0)
+        ]);
+        const tubeGeo = new THREE.TubeGeometry(tubeCurve, 48, 0.075, 16, false);
+        const tubeMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65 });
+        const tubeMesh = new THREE.Mesh(tubeGeo, tubeMat);
+        tubeMesh.castShadow = true;
+        labGroup.add(tubeMesh);
+
+        // Đầu nối vào cổ bóng
+        const nozzleMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.11, 0.11, 0.24, 20),
+            new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 })
+        );
+        nozzleMesh.rotation.z = -Math.PI / 2.4;
+        nozzleMesh.position.set(balloonX - 0.12, nozzleY + 0.02, 0);
+        labGroup.add(nozzleMesh);
+
+        // C. Quả bóng cao su 3D màu tím nhạt (giống ảnh mẫu) khởi đầu từ trạng thái XẸP
+        const balloonGeo = new THREE.SphereGeometry(1, 56, 56);
+        const posAttr = balloonGeo.attributes.position;
+        const vCount = posAttr.count;
+        const sphereCoords = new Float32Array(vCount * 3);
+        const deflatedCoords = new Float32Array(vCount * 3);
+
+        for (let i = 0; i < vCount; i++) {
+            const sx = posAttr.getX(i);
+            const sy = posAttr.getY(i);
+            const sz = posAttr.getZ(i);
+
+            sphereCoords[i * 3] = sx;
+            sphereCoords[i * 3 + 1] = sy;
+            sphereCoords[i * 3 + 2] = sz;
+
+            // Tạo hình dạng vỏ bóng xẹp nằm dẹt tự nhiên trên mặt bàn cạnh đầu ống dẫn:
+            // u = 0 ở cổ bóng (bên trái), u = 1 ở đỉnh túi bóng xẹp (bên phải)
+            const u = (sx + 1) * 0.5;
+            const angle = Math.atan2(sz, sy);
+            const wrinkle = 0.035 * Math.sin(angle * 3 + u * 7) * Math.sin(u * Math.PI);
+
+            // Chiều dài túi cao su xẹp trải sang phải khoảng 1.15 đơn vị
+            const dx = u * 1.15;
+            // Nằm sát mặt bàn (y ≈ -0.18 so với tâm cổ bóng nozzleY = 0.26 -> y_world ≈ 0.08)
+            const dy = -0.17 * Math.pow(u, 0.7) + Math.sin(angle) * (0.04 + 0.02 * (1 - u)) + wrinkle * 0.4;
+            // Bề ngang dẹt của túi bóng xẹp
+            const widthProfile = 0.12 + 0.36 * Math.sin(Math.pow(u, 0.75) * Math.PI);
+            const dz = Math.cos(angle) * widthProfile + wrinkle;
+
+            deflatedCoords[i * 3] = dx;
+            deflatedCoords[i * 3 + 1] = dy;
+            deflatedCoords[i * 3 + 2] = dz;
+        }
+
+        // Chất liệu cao su bán trong suốt màu xanh ngọc lục bảo (Emerald-Teal) khác hẳn màu tím mẫu cũ
+        const balloonMat = new THREE.MeshPhysicalMaterial({
+            color: 0x10b981,
+            transparent: true,
+            opacity: 0.72,
+            roughness: 0.25,
+            metalness: 0.04,
+            clearcoat: 0.45,
+            clearcoatRoughness: 0.2,
+            depthWrite: false,
+            side: THREE.DoubleSide
+        });
+        const balloonMesh = new THREE.Mesh(balloonGeo, balloonMat);
+        balloonMesh.position.set(balloonX, nozzleY, 0);
+        balloonMesh.castShadow = true;
+        labGroup.add(balloonMesh);
+
+        // Cập nhật biến dạng lưới quả bóng từ xẹp (inflation = 0) sang cầu tròn (inflation = 1)
+        function updateBalloonMesh(inflation, radius3D) {
+            const attr = balloonMesh.geometry.attributes.position;
+            const t = Math.min(1, Math.max(0, inflation));
+            const smoothT = t * t * (3 - 2 * t);
+
+            // Khi phồng lên, tâm quả cầu nâng lên và dịch sang phải sao cho mép trái/dưới chạm cổ ống dẫn
+            const centerOffsetX = smoothT * (radius3D * 0.72);
+            const centerOffsetY = smoothT * (radius3D * 0.92 - 0.12);
+
+            for (let i = 0; i < vCount; i++) {
+                const dx = deflatedCoords[i * 3];
+                const dy = deflatedCoords[i * 3 + 1];
+                const dz = deflatedCoords[i * 3 + 2];
+
+                const sx = sphereCoords[i * 3] * radius3D + centerOffsetX;
+                const sy = sphereCoords[i * 3 + 1] * radius3D + centerOffsetY;
+                const sz = sphereCoords[i * 3 + 2] * radius3D;
+
+                attr.setXYZ(
+                    i,
+                    THREE.MathUtils.lerp(dx, sx, smoothT),
+                    THREE.MathUtils.lerp(dy, sy, smoothT),
+                    THREE.MathUtils.lerp(dz, sz, smoothT)
+                );
+            }
+            attr.needsUpdate = true;
+            balloonMesh.geometry.computeVertexNormals();
+            balloonMat.opacity = THREE.MathUtils.lerp(0.84, 0.56, smoothT);
+        }
+
+        // Khởi tạo hình dạng bóng xẹp ngay từ đầu
+        updateBalloonMesh(0, 0);
+
+        // D. Các hạt phân tử khí màu vàng cam nổi bật bên trong lòng bóng xanh ngọc
+        const MAX_PARTICLES = 260;
+        const particleGeo = new THREE.SphereGeometry(0.028, 8, 8);
+        const particleMat = new THREE.MeshBasicMaterial({
+            color: 0xf59e0b,
+            transparent: true,
+            opacity: 0.85
+        });
+        const particleInstanced = new THREE.InstancedMesh(particleGeo, particleMat, MAX_PARTICLES);
+        labGroup.add(particleInstanced);
+
+        const particleData = [];
+        for (let i = 0; i < MAX_PARTICLES; i++) {
+            const u = Math.random();
+            const v = Math.random();
+            const theta = u * 2.0 * Math.PI;
+            const phi = Math.acos(2.0 * v - 1.0);
+            const r = Math.cbrt(Math.random()) * 0.88;
+
+            particleData.push({
+                pos: new THREE.Vector3(
+                    r * Math.sin(phi) * Math.cos(theta),
+                    r * Math.sin(phi) * Math.sin(theta),
+                    r * Math.cos(phi)
+                ),
+                vel: new THREE.Vector3(
+                    Math.random() - 0.5,
+                    Math.random() - 0.5,
+                    Math.random() - 0.5
+                ).normalize()
+            });
+        }
+
+        // E. Mảnh vỡ màu xanh ngọc khi bóng nổ vượt p_max
+        const shardsGroup = new THREE.Group();
+        shardsGroup.visible = false;
+        labGroup.add(shardsGroup);
+        const shards = [];
+        const shardGeo = new THREE.ConeGeometry(0.2, 0.42, 3);
+        for (let i = 0; i < 24; i++) {
+            const sMesh = new THREE.Mesh(
+                shardGeo,
+                new THREE.MeshStandardMaterial({ color: 0x059669, side: THREE.DoubleSide })
+            );
+            shardsGroup.add(sMesh);
+            shards.push({ mesh: sMesh, vel: new THREE.Vector3() });
+        }
+
+        // ==========================================
+        // 4. TÍNH TOÁN VẬT LÝ KHÍ LÝ TƯỞNG (VẬT LÝ 12)
+        // ==========================================
+        function getRadiusFromVolume(volLiters) {
+            if (volLiters <= 0.0001) return 0;
+            // Với V = 5 Lít, bán kính 3D ≈ 1.48 đơn vị (tỉ lệ cân đối với ống bơm như hình mẫu)
+            return 0.25 + Math.cbrt(volLiters / 5.0) * 1.23;
+        }
+
+        function calculatePhysics() {
+            if (isBurst) return;
+
+            T_K = T_C + 273.15;
+
+            if (n <= 0.000001) {
+                // Trạng thái bóng xẹp chưa có khí
+                n = 0;
+                V = 0;
+                p = p0;
+                updateUI();
+                return;
+            }
+
+            // Số mol cần thiết để làm bóng căng đầy thể tích V_max_shell ở áp suất khí quyển p0:
+            // n_full = (p0 * V_max_shell) / (R * T_K)
+            const V_shell = Math.max(0.1, V_max_shell);
+            const V_natural = (n * R * T_K) / p0;
+
+            if (V_natural <= V_shell) {
+                // Giai đoạn 1: Bóng đang phồng dần từ xẹp lên, áp suất cân bằng khí quyển p = p0
+                V = V_natural;
+                p = p0;
+            } else {
+                // Giai đoạn 2: Vỏ bóng đã đạt thể tích căng V_shell, áp suất tăng theo p = nRT / V_shell
+                V = V_shell;
+                p = (n * R * T_K) / V_shell;
+            }
+
+            // Kiểm tra điều kiện nổ bóng khi áp suất vượt quá p_max
+            if (p > p_max) {
+                triggerBurst();
+            }
+
+            updateUI();
+        }
+
+        function triggerBurst() {
+            isBurst = true;
+            stopAutoPump();
+            balloonMesh.visible = false;
+            document.getElementById('burst-limit-txt').innerText = p_max + " kPa";
+            document.getElementById('burst-overlay').classList.remove('hidden');
+            document.getElementById('btn-pump').disabled = true;
+            document.getElementById('btn-pump-float').disabled = true;
+            document.getElementById('btn-auto').disabled = true;
+            document.getElementById('btn-release').disabled = true;
+            document.getElementById('btn-release-float').disabled = true;
+
+            const r3D = getRadiusFromVolume(V);
+            const center = new THREE.Vector3(balloonX + r3D * 0.72, nozzleY + r3D * 0.92 - 0.12, 0);
+            shardsGroup.visible = true;
+
+            shards.forEach(s => {
+                const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.1, Math.random() - 0.5).normalize();
+                s.mesh.position.copy(center).addScaledVector(dir, r3D * 0.7);
+                s.mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+                s.vel.copy(dir).multiplyScalar(2.8 + Math.random() * 3.5);
+            });
+        }
+
+        function updateUI() {
+            // Cập nhật nhãn các thanh trượt
+            document.getElementById('lbl-v').innerText = V.toFixed(1) + " L";
+            document.getElementById('slider-v').value = Math.min(15, V).toFixed(1);
+
+            document.getElementById('lbl-v0').innerText = V0_mL + " mL";
+            document.getElementById('lbl-tc').innerText = T_C + " °C";
+            document.getElementById('lbl-p0').innerText = p0.toFixed(1) + " kPa";
+            document.getElementById('lbl-pmax').innerText = p_max + " kPa";
+
+            // Cập nhật thanh tiến trình p / p tối đa
+            const ratioPct = Math.min(100, Math.round((p / p_max) * 100));
+            const pBar = document.getElementById('pressure-bar');
+            pBar.style.width = ratioPct + "%";
+            document.getElementById('lbl-pratio').innerText = ratioPct + "%";
+
+            if (ratioPct < 60) {
+                pBar.className = "h-full bg-emerald-600 transition-all duration-200";
+            } else if (ratioPct < 85) {
+                pBar.className = "h-full bg-amber-500 transition-all duration-200";
+            } else {
+                pBar.className = "h-full bg-red-600 transition-all duration-200";
+            }
+
+            // Cập nhật trạng thái chữ nhỏ bên phải thanh tiến trình
+            const badge = document.getElementById('lbl-state-badge');
+            const btnRelease = document.getElementById('btn-release');
+            const btnReleaseFloat = document.getElementById('btn-release-float');
+
+            if (isBurst) {
+                badge.innerText = "Bóng đã nổ!";
+                badge.className = "text-red-600 font-semibold";
+            } else if (n <= 0.000001) {
+                badge.innerText = "Bóng xẹp (0.0 L)";
+                badge.className = "text-amber-600 font-medium";
+                btnRelease.disabled = true;
+                btnReleaseFloat.disabled = true;
+            } else if (V < V_max_shell - 0.01) {
+                badge.innerText = `Đang phồng (${V.toFixed(1)}/${V_max_shell.toFixed(1)} L)`;
+                badge.className = "text-blue-600 font-medium";
+                btnRelease.disabled = false;
+                btnReleaseFloat.disabled = false;
+            } else {
+                badge.innerText = `Đã căng đầy (${V.toFixed(1)} L)`;
+                badge.className = "text-emerald-600 font-semibold";
+                btnRelease.disabled = false;
+                btnReleaseFloat.disabled = false;
+            }
+
+            // Cập nhật 4 thẻ thông số
+            const atm = p / 101.325;
+            document.getElementById('val-p').innerText = `${p.toFixed(1)} kPa (${atm.toFixed(2)} atm)`;
+            document.getElementById('val-n').innerText = `${n.toFixed(4)} mol`;
+            document.getElementById('val-pumps').innerText = pumpCount;
+            document.getElementById('val-tk').innerText = `${T_K.toFixed(1)} K`;
+        }
+
+        // ==========================================
+        // 5. XỬ LÝ SỰ KIỆN TƯƠNG TÁC NGƯỜI DÙNG
+        // ==========================================
+        function showToast(msg, icon = "ℹ️") {
+            const box = document.getElementById('toast-box');
+            document.getElementById('toast-icon').innerText = icon;
+            document.getElementById('toast-msg').innerText = msg;
+            box.classList.remove('hidden');
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => box.classList.add('hidden'), 2600);
+        }
+
+        // Khi người dùng kéo trực tiếp thanh trượt "Thể tích bóng V"
+        function onSliderVChange() {
+            if (isBurst) return;
+            const targetV = parseFloat(document.getElementById('slider-v').value);
+            T_K = T_C + 273.15;
+
+            if (targetV <= 0.001) {
+                n = 0;
+                V = 0;
+                p = p0;
+                V_max_shell = V_TENSE_DEFAULT;
+            } else {
+                // Đặt ngưỡng căng tại thể tích người dùng chọn và tính lượng khí n tương ứng
+                V_max_shell = targetV;
+                V = targetV;
+                n = (p * V) / (R * T_K);
+            }
+            updateUI();
+        }
+
+        // Khi người dùng thay đổi V0, Nhiệt độ T, p0 hoặc p_max
+        function onParamsChange() {
+            V0_mL = parseInt(document.getElementById('slider-v0').value);
+            T_C = parseInt(document.getElementById('slider-tc').value);
+            p0 = parseFloat(document.getElementById('slider-p0').value);
+            p_max = parseInt(document.getElementById('slider-pmax').value);
+
+            calculatePhysics();
+        }
+
+        // Bơm 1 lần: đưa thêm Δn = (p0 * V0) / (R * T) mol khí vào bóng
+        function pumpOnce() {
+            if (isBurst || isPumping) return;
+            isPumping = true;
+            pistonAnim = 0;
+            pumpCount++;
+        }
+
+        // Bật / Tắt chế độ tự động bơm
+        function toggleAutoPump() {
+            if (isBurst) return;
+            const btnAuto = document.getElementById('btn-auto');
+            if (autoPumpTimer) {
+                stopAutoPump();
+            } else {
+                btnAuto.innerText = "Dừng bơm";
+                btnAuto.classList.remove('bg-white', 'text-slate-800', 'border-slate-300');
+                btnAuto.classList.add('bg-amber-500', 'text-white', 'border-amber-500');
+                pumpOnce();
+                autoPumpTimer = setInterval(() => {
+                    if (isBurst) {
+                        stopAutoPump();
+                        return;
+                    }
+                    if (!isPumping) {
+                        pumpOnce();
+                    }
+                }, 520);
+            }
+        }
+
+        function stopAutoPump() {
+            if (autoPumpTimer) {
+                clearInterval(autoPumpTimer);
+                autoPumpTimer = null;
+            }
+            const btnAuto = document.getElementById('btn-auto');
+            btnAuto.innerText = "Tự động bơm";
+            btnAuto.classList.remove('bg-amber-500', 'text-white', 'border-amber-500');
+            btnAuto.classList.add('bg-white', 'text-slate-800', 'border-slate-300');
+        }
+
+        // Xả bớt 1 lần khí
+        function releaseAir() {
+            if (isBurst || isPumping) return;
+            stopAutoPump();
+            if (n <= 0.000001) {
+                showToast("Bóng đang xẹp hoàn toàn (0.0 L), không còn khí để xả.");
+                return;
+            }
+            T_K = T_C + 273.15;
+            const dn = (p0 * (V0_mL / 1000.0)) / (R * T_K);
+            n = Math.max(0, n - dn);
+            if (n < 1e-6) n = 0;
+            calculatePhysics();
+        }
+
+        // Đặt lại toàn bộ về trạng thái quả bóng xẹp ban đầu
+        function resetSim() {
+            stopAutoPump();
+            isBurst = false;
+            isPumping = false;
+            pistonAnim = 0;
+            pistonGroup.position.y = pistonRestY;
+            pistonGroup.userData.injected = false;
+
+            V_max_shell = 5.0;
+            V = 0.0;
+            V0_mL = 200;
+            T_C = 27;
+            p0 = 101.3;
+            p_max = 350;
+            n = 0.0;
+            p = p0;
+            pumpCount = 0;
+            smoothInflation = 0;
+
+            document.getElementById('slider-v').value = 0;
+            document.getElementById('slider-v0').value = 200;
+            document.getElementById('slider-tc').value = 27;
+            document.getElementById('slider-p0').value = 101.3;
+            document.getElementById('slider-pmax').value = 350;
+
+            document.getElementById('burst-overlay').classList.add('hidden');
+            document.getElementById('btn-pump').disabled = false;
+            document.getElementById('btn-pump-float').disabled = false;
+            document.getElementById('btn-auto').disabled = false;
+            document.getElementById('btn-release').disabled = true;
+            document.getElementById('btn-release-float').disabled = true;
+
+            balloonMesh.visible = true;
+            shardsGroup.visible = false;
+            updateBalloonMesh(0, 0);
+
+            calculatePhysics();
+            showToast("Đã đặt lại về trạng thái bóng xẹp ban đầu.", "↻");
+        }
+
+        function resetCamera() {
+            camera.position.set(0.2, 4.2, 12.2);
+            controls.target.set(0.1, 1.8, 0);
+            controls.update();
+        }
+
+        // ==========================================
+        // 6. VÒNG LẶP HOẠT ẢNH 3D (ANIMATE)
+        // ==========================================
+        const dummy = new THREE.Object3D();
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.05);
+
+            // 1. Chuyển động pit-tông đẩy xuống và kéo lên khi bơm
+            if (isPumping) {
+                pistonAnim += dt * 4.5;
+                if (pistonAnim < 1) {
+                    pistonGroup.position.y = pistonRestY - Math.sin(pistonAnim * Math.PI / 2) * 2.8;
+                } else if (pistonAnim < 2) {
+                    if (!pistonGroup.userData.injected) {
+                        pistonGroup.userData.injected = true;
+                        T_K = T_C + 273.15;
+                        // Công thức chuẩn Vật lí 12: Δn = (p0 * V0) / (R * T)
+                        const dn = (p0 * (V0_mL / 1000.0)) / (R * T_K);
+                        n += dn;
+                        calculatePhysics();
+                    }
+                    const up = pistonAnim - 1;
+                    pistonGroup.position.y = (pistonRestY - 2.8) + Math.sin(up * Math.PI / 2) * 2.8;
+                } else {
+                    pistonGroup.position.y = pistonRestY;
+                    pistonGroup.userData.injected = false;
+                    isPumping = false;
+                }
+            }
+
+            // 2. Cập nhật biến dạng quả bóng từ xẹp rũ sang cầu tròn căng
+            const targetV = isBurst ? V : V;
+            const targetR3D = getRadiusFromVolume(targetV);
+
+            if (!isBurst) {
+                // Nội suy mức độ căng bóng: V = 0 -> 0 (xẹp), V >= 0.8 Lít -> 1 (tròn căng)
+                const targetInf = targetV <= 0.0001 ? 0 : Math.min(1, 0.25 + (targetV / 0.8) * 0.75);
+                smoothInflation = THREE.MathUtils.lerp(smoothInflation, targetInf, 0.16);
+
+                const prevR = balloonMesh.userData.curR || 0;
+                const curR = THREE.MathUtils.lerp(prevR, targetR3D, 0.16);
+                balloonMesh.userData.curR = curR;
+
+                updateBalloonMesh(smoothInflation, curR);
+
+                // Sắc độ xanh ngọc lục bảo (Emerald) chuyển dần sang vàng cam cảnh báo khi áp suất tăng cao
+                const pRatio = Math.min(1, Math.max(0, (p - p0) / Math.max(1, p_max - p0)));
+                const hue = THREE.MathUtils.lerp(0.44, 0.08, pRatio);
+                balloonMat.color.setHSL(hue, 0.76, 0.52);
+
+                // 3. Chuyển động nhiệt của các chấm phân tử khí li ti bên trong bóng
+                const activeCount = n <= 0.000001 ? 0 : Math.min(MAX_PARTICLES, Math.max(10, Math.round(n * 900)));
+                const thermalSpeed = Math.sqrt(Math.max(50, T_K) / 300.15) * 1.4;
+                const smoothT = smoothInflation * smoothInflation * (3 - 2 * smoothInflation);
+                const centerOffsetX = smoothT * (curR * 0.72);
+                const centerOffsetY = smoothT * (curR * 0.92 - 0.12);
+
+                for (let i = 0; i < MAX_PARTICLES; i++) {
+                    if (i >= activeCount || curR <= 0.05) {
+                        dummy.scale.set(0, 0, 0);
+                        dummy.updateMatrix();
+                        particleInstanced.setMatrixAt(i, dummy.matrix);
+                        continue;
+                    }
+
+                    const pt = particleData[i];
+                    pt.pos.addScaledVector(pt.vel, (thermalSpeed * dt) / Math.max(0.3, curR));
+
+                    if (pt.pos.length() > 0.88) {
+                        const normal = pt.pos.clone().normalize();
+                        pt.pos.copy(normal).multiplyScalar(0.88);
+                        pt.vel.sub(normal.multiplyScalar(2 * pt.vel.dot(normal))).normalize();
+                    }
+
+                    const s = Math.min(1, curR / 0.5);
+                    dummy.position.set(
+                        balloonX + centerOffsetX + pt.pos.x * curR * 0.94,
+                        nozzleY + centerOffsetY + pt.pos.y * curR * 0.94,
+                        pt.pos.z * curR * 0.94
+                    );
+                    dummy.scale.set(s, s, s);
+                    dummy.updateMatrix();
+                    particleInstanced.setMatrixAt(i, dummy.matrix);
+                }
+                particleInstanced.instanceMatrix.needsUpdate = true;
+            } else {
+                // Hiệu ứng mảnh vỡ rơi xuống bàn khi bóng nổ
+                shards.forEach(s => {
+                    s.vel.y -= 9.8 * dt;
+                    s.mesh.position.addScaledVector(s.vel, dt);
+                    s.mesh.rotation.x += 4 * dt;
+                    s.mesh.rotation.y += 4 * dt;
+                    if (s.mesh.position.y < 0.04) {
+                        s.mesh.position.y = 0.04;
+                        s.vel.multiplyScalar(0.25);
+                    }
+                });
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Xử lý thay đổi kích thước màn hình
+        window.addEventListener('resize', () => {
+            if (!container) return;
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        // Cho phép bấm trực tiếp vào ống bơm/tay cầm đỏ trên mô hình 3D để bơm
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        let downPos = { x: 0, y: 0 };
+
+        canvas.addEventListener('pointerdown', (e) => {
+            downPos = { x: e.clientX, y: e.clientY };
+        });
+
+        canvas.addEventListener('pointerup', (e) => {
+            const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+            if (dist > 6 || isBurst || isPumping) return;
+
+            const rect = canvas.getBoundingClientRect();
+            pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(pointer, camera);
+            const hits = raycaster.intersectObjects([handleBox, pistonRod, pistonHead, cylMesh], false);
+            if (hits.length > 0) {
+                pumpOnce();
+            }
+        });
+
+        // Khởi chạy ứng dụng
+        window.onload = function () {
+            calculatePhysics();
+            animate();
+        };
+    </script>
+</body>
+</html>
